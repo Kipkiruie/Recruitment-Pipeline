@@ -1,56 +1,57 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { BrowserRouter as Router, Route, Routes, Navigate } from "react-router-dom";
 import axios from "axios";
 import Navbar from "./components/Navbar";
 import CandidateForm from "./components/CandidateForm";
 import CandidateList from "./components/CandidateList";
 import Login from "./components/Login";
-import Analytics from "./components/Analytics"; // Assuming you have Analytics
-import Notifications from "./components/Notifications"; // Assuming you have Notifications
-import UserManagement from "./components/UserManagement"; // Assuming you have User Management
+import Analytics from "./components/Analytics";
+import Notifications from "./components/Notifications";
+import UserManagement from "./components/UserManagement";
 
 const App = () => {
   const [candidates, setCandidates] = useState([]);
-  const [error, setError] = useState(""); // State for handling errors
-  const [success, setSuccess] = useState(""); // State for handling success messages
-  const [authToken, setAuthToken] = useState(localStorage.getItem("authToken") || null); // Auth token state
+  const [error, setError] = useState(""); // Error message state
+  const [success, setSuccess] = useState(""); // Success message state
+  const [authToken, setAuthToken] = useState(localStorage.getItem("authToken") || null);
 
-  // Fetch all candidates
-  const fetchCandidates = async () => {
-    try {
-      setError(""); // Clear previous errors
-      const response = await axios.get("http://localhost:5000/api/candidates", {
-        headers: { Authorization: `Bearer ${authToken}` }, // Add token to requests
-      });
-
-      // Ensure the application_date is in the correct format (ISO 8601) if it's not
-      const formattedCandidates = response.data.map((candidate) => ({
-        ...candidate,
-        application_date: new Date(candidate.application_date).toISOString().split("T")[0],
-      }));
-
-      setCandidates(formattedCandidates);
-    } catch (error) {
-      setError("Error fetching candidates. Please try again later.");
-      console.error("Error fetching candidates:", error);
+  // Automatically clear success/error messages after 3 seconds
+  useEffect(() => {
+    if (success || error) {
+      const timer = setTimeout(() => {
+        setSuccess("");
+        setError("");
+      }, 3000);
+      return () => clearTimeout(timer);
     }
-  };
+  }, [success, error]);
+
+  // Fetch candidates data from the API
+  const fetchCandidates = useCallback(async () => {
+    if (!authToken) return;
+    try {
+      setError(""); // Clear any previous error
+      const response = await axios.get("http://localhost:5000/api/candidates", {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      setCandidates(response.data);
+    } catch (err) {
+      setError("Error fetching candidates. Please try again.");
+      console.error("Fetch error:", err);
+    }
+  }, [authToken]);
 
   // Add a new candidate
   const addCandidate = async (newCandidate) => {
     try {
-      const response = await axios.post(
-        "http://localhost:5000/api/candidates",
-        newCandidate,
-        {
-          headers: { Authorization: `Bearer ${authToken}` }, // Add token to requests
-        }
-      );
-      setCandidates((prev) => [...prev, response.data.candidate]);
-      setSuccess("Candidate added successfully!"); // Success message after adding
-    } catch (error) {
-      console.error("Error adding candidate:", error);
-      setError("Error adding candidate. Please try again later.");
+      const response = await axios.post("http://localhost:5000/api/candidates", newCandidate, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      setCandidates((prev) => [...prev, response.data]);
+      setSuccess("Candidate added successfully!");
+    } catch (err) {
+      setError("Error adding candidate. Please try again.");
+      console.error("Add error:", err);
     }
   };
 
@@ -61,20 +62,18 @@ const App = () => {
         `http://localhost:5000/api/candidates/${updatedCandidate.id}`,
         updatedCandidate,
         {
-          headers: { Authorization: `Bearer ${authToken}` }, // Add token to requests
+          headers: { Authorization: `Bearer ${authToken}` },
         }
       );
-
-      // Update the candidate list after successful edit
       setCandidates((prev) =>
         prev.map((candidate) =>
-          candidate.id === updatedCandidate.id ? response.data.candidate : candidate
+          candidate.id === updatedCandidate.id ? response.data : candidate
         )
       );
       setSuccess("Candidate updated successfully!");
-    } catch (error) {
-      console.error("Error editing candidate:", error);
-      setError("Error editing candidate. Please try again later.");
+    } catch (err) {
+      setError("Error updating candidate. Please try again.");
+      console.error("Edit error:", err);
     }
   };
 
@@ -82,34 +81,35 @@ const App = () => {
   const deleteCandidate = async (id) => {
     const confirmDelete = window.confirm("Are you sure you want to delete this candidate?");
     if (!confirmDelete) return;
-
     try {
       await axios.delete(`http://localhost:5000/api/candidates/${id}`, {
-        headers: { Authorization: `Bearer ${authToken}` }, // Add token to requests
+        headers: { Authorization: `Bearer ${authToken}` },
       });
-      setCandidates((prev) => prev.filter((candidate) => candidate.id !== id)); // Dynamically update UI
-      alert("Candidate deleted successfully.");
-    } catch (error) {
-      console.error("Error deleting candidate:", error);
-      alert("Error deleting candidate. Please try again later.");
+      setCandidates((prev) => prev.filter((candidate) => candidate.id !== id));
+      setSuccess("Candidate deleted successfully.");
+    } catch (err) {
+      setError("Error deleting candidate. Please try again.");
+      console.error("Delete error:", err);
     }
   };
 
-  // Fetch candidates when the component mounts if the user is logged in
+  // Fetch candidates when the component mounts
   useEffect(() => {
-    if (authToken) fetchCandidates();
-  }, [authToken]);
+    fetchCandidates();
+  }, [fetchCandidates]);
 
   // Handle login
   const handleLogin = (token) => {
     setAuthToken(token);
     localStorage.setItem("authToken", token);
+    setSuccess("Login successful!");
   };
 
   // Handle logout
   const handleLogout = () => {
     setAuthToken(null);
     localStorage.removeItem("authToken");
+    setSuccess("Logged out successfully.");
   };
 
   return (
@@ -118,24 +118,26 @@ const App = () => {
       {error && <p style={{ color: "red", textAlign: "center" }}>{error}</p>}
       {success && <p style={{ color: "green", textAlign: "center" }}>{success}</p>}
       <Routes>
-        {/* Public Routes */}
+        {/* Public Route */}
         <Route path="/login" element={<Login onLogin={handleLogin} />} />
 
         {/* Protected Routes */}
         <Route
           path="/"
-          element={authToken ? (
-            <>
-              <CandidateForm onAddCandidate={addCandidate} />
-              <CandidateList
-                candidates={candidates}
-                onEditCandidate={editCandidate}
-                onDeleteCandidate={deleteCandidate}
-              />
-            </>
-          ) : (
-            <Navigate to="/login" />
-          )}
+          element={
+            authToken ? (
+              <>
+                <CandidateForm onAddCandidate={addCandidate} />
+                <CandidateList
+                  candidates={candidates}
+                  onEditCandidate={editCandidate}
+                  onDeleteCandidate={deleteCandidate}
+                />
+              </>
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
         />
         <Route
           path="/analytics"

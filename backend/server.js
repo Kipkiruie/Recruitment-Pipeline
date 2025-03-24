@@ -10,6 +10,7 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors()); // Enable CORS for all requests
 app.use(express.json()); // Parse JSON request bodies
+app.options('*', cors()); // Handle CORS preflight requests for all routes
 
 // Database Connection
 const db = mysql.createConnection({
@@ -21,32 +22,27 @@ const db = mysql.createConnection({
 
 db.connect((err) => {
     if (err) {
-        console.error('Error connecting to the database:', err);
+        console.error('Error connecting to the database:', err.message);
         process.exit(1); // Exit if the database connection fails
     }
     console.log('Connected to MySQL database.');
 });
 
-// Middleware to handle CORS preflight requests
-app.options('*', cors()); // Allow preflight requests for all routes
-
 // API Routes
 
-// Fetch all candidates
 // Fetch all candidates
 app.get('/api/candidates', (req, res) => {
     const sql = 'SELECT * FROM candidates';
     db.query(sql, (err, results) => {
         if (err) {
-            console.error('Database query error:', err);
+            console.error('Database query error:', err.message);
             return res.status(500).json({ error: 'Database query error' });
         }
 
-        // Ensure the position is returned as "position" in the response
-        const formattedResults = results.map(candidate => ({
+        const formattedResults = results.map((candidate) => ({
             ...candidate,
-            position: candidate.position_applied,  // Alias position_applied as position
-            application_date: new Date(candidate.application_date).toISOString(),
+            position: candidate.position_applied, // Alias position_applied as position
+            application_date: new Date(candidate.application_date).toISOString().split('T')[0],
         }));
 
         res.json(formattedResults);
@@ -57,10 +53,6 @@ app.get('/api/candidates', (req, res) => {
 app.post('/api/candidates', (req, res) => {
     const { name, email, phone, position } = req.body;
 
-    // Log the position to check if it is being passed
-    console.log('Position:', position);
-
-    // Validate input fields
     if (!name || !email || !phone || !position) {
         return res.status(400).json({ error: 'All fields are required.' });
     }
@@ -70,7 +62,7 @@ app.post('/api/candidates', (req, res) => {
         VALUES (?, ?, ?, ?, CURDATE(), 'Pending')`;
     db.query(sql, [name, email, phone, position], (err, result) => {
         if (err) {
-            console.error('Database insert error:', err);
+            console.error('Database insert error:', err.message);
             return res.status(500).json({ error: 'Database insert error' });
         }
 
@@ -84,9 +76,9 @@ app.post('/api/candidates', (req, res) => {
             status: 'Pending',
         };
 
-        res.status(201).json({ 
-            message: 'Candidate added successfully.', 
-            candidate: newCandidate 
+        res.status(201).json({
+            message: 'Candidate added successfully.',
+            candidate: newCandidate,
         });
     });
 });
@@ -96,10 +88,6 @@ app.put('/api/candidates/:id', (req, res) => {
     const { id } = req.params;
     const { name, email, phone, position, status } = req.body;
 
-    // Log the position to check if it is being passed
-    console.log('Position:', position);
-
-    // Validate input fields
     if (!name || !email || !phone || !position || !status) {
         return res.status(400).json({ error: 'All fields are required for updating.' });
     }
@@ -110,20 +98,13 @@ app.put('/api/candidates/:id', (req, res) => {
         WHERE id = ?`;
     db.query(sql, [name, email, phone, position, status, id], (err) => {
         if (err) {
-            console.error('Database update error:', err);
+            console.error('Database update error:', err.message);
             return res.status(500).json({ error: 'Database update error' });
         }
 
-        const updatedCandidate = {
-            id,
-            name,
-            email,
-            phone,
-            position,
-            status,
-        };
+        const updatedCandidate = { id, name, email, phone, position, status };
 
-        res.json({ 
+        res.json({
             message: 'Candidate updated successfully.',
             candidate: updatedCandidate,
         });
@@ -137,22 +118,50 @@ app.delete('/api/candidates/:id', (req, res) => {
     const sql = 'DELETE FROM candidates WHERE id = ?';
     db.query(sql, [id], (err, result) => {
         if (err) {
-            console.error('Database delete error:', err);
+            console.error('Database delete error:', err.message);
             return res.status(500).json({ error: 'Database delete error' });
         }
         if (result.affectedRows === 0) {
             return res.status(404).json({ error: 'Candidate not found.' });
         }
-        res.json({ 
+        res.json({
             message: `Candidate with ID ${id} has been successfully deleted.`,
             deletedId: id,
         });
     });
 });
 
+// Login route
+app.post('/api/auth/login', (req, res) => {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required.' });
+    }
+
+    db.query('SELECT * FROM admins WHERE username = ?', [username], (err, results) => {
+        if (err) {
+            console.error('Database query error:', err.message);
+            return res.status(500).json({ error: 'Database query error' });
+        }
+
+        if (results.length === 0) {
+            return res.status(401).json({ error: 'Invalid username or password.' });
+        }
+
+        const admin = results[0];
+
+        if (password !== admin.password) {
+            return res.status(401).json({ error: 'Invalid username or password.' });
+        }
+
+        res.status(200).json({ message: 'Login successful', token: 'your-jwt-token' });
+    });
+});
+
 // Error Handling Middleware
 app.use((err, req, res, next) => {
-    console.error('Unhandled error:', err);
+    console.error('Unhandled error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
 });
 
